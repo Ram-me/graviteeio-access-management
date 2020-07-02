@@ -27,6 +27,7 @@ import io.vertx.reactivex.ext.web.RoutingContext;
 import java.util.List;
 import java.util.Set;
 
+import static io.gravitee.am.gateway.handler.common.vertx.utils.UriBuilderRequest.CONTEXT_PATH;
 import static io.gravitee.am.service.utils.ResponseTypeUtils.requireNonce;
 
 /**
@@ -95,7 +96,7 @@ public class AuthorizationRequestParseRequiredParametersHandler implements Handl
         }
 
         // get supported response types
-        List<String> responseTypesSupported = openIDDiscoveryService.getConfiguration("/").getResponseTypesSupported();
+        List<String> responseTypesSupported = openIDDiscoveryService.getConfiguration(context.get(CONTEXT_PATH)).getResponseTypesSupported();
         if (!responseTypesSupported.contains(responseType)) {
             throw new UnsupportedResponseTypeException("Unsupported response type: " + responseType);
         }
@@ -109,7 +110,7 @@ public class AuthorizationRequestParseRequiredParametersHandler implements Handl
         }
 
         // get supported response modes
-        List<String> responseModesSupported = openIDDiscoveryService.getConfiguration("/").getResponseModesSupported();
+        List<String> responseModesSupported = openIDDiscoveryService.getConfiguration(context.get(CONTEXT_PATH)).getResponseModesSupported();
         if (!responseModesSupported.contains(responseMode)) {
             throw new UnsupportedResponseModeException("Unsupported response mode: " + responseMode);
         }

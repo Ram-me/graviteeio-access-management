@@ -255,6 +255,7 @@ public class DomainServiceTest {
         NewDomain newDomain = Mockito.mock(NewDomain.class);
         when(newDomain.getName()).thenReturn("my-domain");
         when(domainRepository.findById("my-domain")).thenReturn(Maybe.empty());
+        when(domainRepository.findAll()).thenReturn(Single.just(Collections.emptySet()));
         Domain domain = new Domain();
         domain.setId("domain-id");
         when(domainRepository.create(any(Domain.class))).thenReturn(Single.just(domain));
@@ -298,6 +299,7 @@ public class DomainServiceTest {
         NewDomain newDomain = Mockito.mock(NewDomain.class);
         when(newDomain.getName()).thenReturn("my-domain");
         when(domainRepository.findById("my-domain")).thenReturn(Maybe.empty());
+        when((domainRepository.findAll())).thenReturn(Single.just(Collections.emptySet()));
         when(domainRepository.create(any(Domain.class))).thenReturn(Single.error(TechnicalException::new));
 
         TestObserver<Domain> testObserver = new TestObserver<>();
@@ -327,8 +329,15 @@ public class DomainServiceTest {
     @Test
     public void shouldUpdate() {
         UpdateDomain updateDomain = Mockito.mock(UpdateDomain.class);
-        when(domainRepository.findById("my-domain")).thenReturn(Maybe.just(new Domain()));
-        when(domainRepository.update(any(Domain.class))).thenReturn(Single.just(new Domain()));
+        Domain domain = new Domain();
+        domain.setName("my-domain");
+        domain.setPath("/test");
+        when(updateDomain.getName()).thenReturn(domain.getName());
+        when(updateDomain.getPath()).thenReturn(domain.getPath());
+        when(domainRepository.findById("my-domain")).thenReturn(Maybe.just(domain));
+        when(domainRepository.findAll()).thenReturn(Single.just(Collections.emptySet()));
+        when(domainRepository.findAll()).thenReturn(Single.just(Collections.emptySet()));
+        when(domainRepository.update(any(Domain.class))).thenReturn(Single.just(domain));
         when(eventService.create(any())).thenReturn(Single.just(new Event()));
 
         TestObserver testObserver = domainService.update("my-domain", updateDomain).test();
@@ -358,7 +367,13 @@ public class DomainServiceTest {
     @Test
     public void shouldUpdate2_technicalException() {
         UpdateDomain updateDomain = Mockito.mock(UpdateDomain.class);
-        when(domainRepository.findById("my-domain")).thenReturn(Maybe.just(new Domain()));
+        Domain domain = new Domain();
+        domain.setName("my-domain");
+        domain.setPath("/test");
+        when(updateDomain.getName()).thenReturn(domain.getName());
+        when(updateDomain.getPath()).thenReturn(domain.getPath());
+        when(domainRepository.findById("my-domain")).thenReturn(Maybe.just(domain));
+        when(domainRepository.findAll()).thenReturn(Single.just(Collections.emptySet()));
         when(domainRepository.update(any(Domain.class))).thenReturn(Single.error(TechnicalException::new));
 
         TestObserver testObserver = domainService.update("my-domain", updateDomain).test();
@@ -397,9 +412,13 @@ public class DomainServiceTest {
     @Test
     public void shouldPatch() {
         PatchDomain patchDomain = Mockito.mock(PatchDomain.class);
-        when(patchDomain.patch(any())).thenReturn(new Domain());
-        when(domainRepository.findById("my-domain")).thenReturn(Maybe.just(new Domain()));
-        when(domainRepository.update(any(Domain.class))).thenReturn(Single.just(new Domain()));
+        Domain domain = new Domain();
+        domain.setName("my-domain");
+        domain.setPath("/test");
+        when(patchDomain.patch(any())).thenReturn(domain);
+        when(domainRepository.findById("my-domain")).thenReturn(Maybe.just(domain));
+        when(domainRepository.findAll()).thenReturn(Single.just(Collections.emptySet()));
+        when(domainRepository.update(any(Domain.class))).thenReturn(Single.just(domain));
         when(eventService.create(any())).thenReturn(Single.just(new Event()));
 
         TestObserver testObserver = domainService.patch("my-domain", patchDomain).test();

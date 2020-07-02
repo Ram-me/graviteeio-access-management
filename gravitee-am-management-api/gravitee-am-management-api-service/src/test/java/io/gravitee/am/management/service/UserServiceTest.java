@@ -18,11 +18,7 @@ package io.gravitee.am.management.service;
 import io.gravitee.am.identityprovider.api.DefaultUser;
 import io.gravitee.am.identityprovider.api.UserProvider;
 import io.gravitee.am.management.service.impl.UserServiceImpl;
-import io.gravitee.am.model.Application;
-import io.gravitee.am.model.ReferenceType;
-import io.gravitee.am.model.Domain;
-import io.gravitee.am.model.Role;
-import io.gravitee.am.model.User;
+import io.gravitee.am.model.*;
 import io.gravitee.am.model.application.ApplicationSettings;
 import io.gravitee.am.service.ApplicationService;
 import io.gravitee.am.model.account.AccountSettings;
@@ -45,10 +41,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.runners.MockitoJUnitRunner;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.*;
 
@@ -91,9 +86,16 @@ public class UserServiceTest {
     @Mock
     private JwtBuilder jwtBuilder;
 
+    @Mock
+    private EmailService emailService;
+
+    @Mock
+    private EmailManager emailManager;
+
     @Before
     public void setUp() {
         ((UserServiceImpl) userService).setExpireAfter(24 * 3600);
+        ReflectionTestUtils.setField(userService, "gatewayUrl", "http://localhost:8092");
     }
 
     @Test
@@ -193,12 +195,160 @@ public class UserServiceTest {
 
     @Test
     public void shouldPreRegisterUser() {
-        shouldPreRegisterUser(false, false);
+
+        final String domain = "domain";
+
+        AccountSettings accountSettings;
+        accountSettings = new AccountSettings();
+
+        JwtBuilder mockJwtBuilder = mock(JwtBuilder.class);
+        when(mockJwtBuilder.compact()).thenReturn("token");
+
+        Domain domain1 = mock(Domain.class);
+        when(domain1.getId()).thenReturn(domain);
+        when(domain1.getAccountSettings()).thenReturn(accountSettings);
+        when(domain1.getPath()).thenReturn("/test");
+
+        NewUser newUser = mock(NewUser.class);
+        when(newUser.getUsername()).thenReturn("username");
+        when(newUser.getSource()).thenReturn("idp");
+        when(newUser.getClient()).thenReturn("client");
+        when(newUser.isPreRegistration()).thenReturn(true);
+
+        UserProvider userProvider = mock(UserProvider.class);
+        doReturn(Single.just(new DefaultUser(newUser.getUsername()))).when(userProvider).create(any());
+
+        Application client = mock(Application.class);
+        when(client.getDomain()).thenReturn("domain");
+        when(jwtBuilder.setClaims(anyMap())).thenReturn(mockJwtBuilder);
+        when(domainService.findById(domain)).thenReturn(Maybe.just(domain1));
+        when(commonUserService.findByDomainAndUsernameAndSource(anyString(), anyString(), anyString())).thenReturn(Maybe.empty());
+        when(identityProviderManager.getUserProvider(anyString())).thenReturn(Maybe.just(userProvider));
+        when(applicationService.findById(newUser.getClient())).thenReturn(Maybe.just(client));
+        when(commonUserService.create(any())).thenReturn(Single.just(new User()));
+
+        Email email = new Email();
+        email.setTemplate("testTemplate");
+        when(emailManager.getEmail(anyString(), isNull(), anyInt())).thenReturn(email);
+
+        TestObserver<User> testObserver = userService.create(domain, newUser).test();
+        testObserver.assertComplete();
+        testObserver.assertNoErrors();
+        verify(commonUserService, times(1)).create(any());
+        ArgumentCaptor<User> argument = ArgumentCaptor.forClass(User.class);
+        verify(commonUserService).create(argument.capture());
+        verify(emailService).send(Mockito.argThat(e -> e.getParams().get("registrationUrl").equals("http://localhost:8092/test/confirmRegistration?token=token")), any(User.class));
+
+        Assert.assertNull(argument.getValue().getRegistrationUserUri());
+        Assert.assertNull(argument.getValue().getRegistrationAccessToken());
+    }
+
+    @Test
+    public void shouldPreRegisterUser_vhost() {
+
+        final String domain = "domain";
+
+        AccountSettings accountSettings;
+        accountSettings = new AccountSettings();
+
+        JwtBuilder mockJwtBuilder = mock(JwtBuilder.class);
+        when(mockJwtBuilder.compact()).thenReturn("token");
+
+        Domain domain1 = mock(Domain.class);
+        when(domain1.getId()).thenReturn(domain);
+        when(domain1.getAccountSettings()).thenReturn(accountSettings);
+        when(domain1.isVhostMode()).thenReturn(true);
+        ArrayList<VirtualHost> vhosts = new ArrayList<>();
+        VirtualHost firstVhost = new VirtualHost();
+        firstVhost.setHost("test1.gravitee.io");
+        firstVhost.setPath("/test1");
+        vhosts.add(firstVhost);
+        VirtualHost secondVhost = new VirtualHost();
+        secondVhost.setHost("test2.gravitee.io");
+        secondVhost.setPath("/test2");
+        secondVhost.setOverrideEntrypoint(true);
+        vhosts.add(secondVhost);
+        when(domain1.getVhosts()).thenReturn(vhosts);
+
+        NewUser newUser = mock(NewUser.class);
+        when(newUser.getUsername()).thenReturn("username");
+        when(newUser.getSource()).thenReturn("idp");
+        when(newUser.getClient()).thenReturn("client");
+        when(newUser.isPreRegistration()).thenReturn(true);
+
+        UserProvider userProvider = mock(UserProvider.class);
+        doReturn(Single.just(new DefaultUser(newUser.getUsername()))).when(userProvider).create(any());
+
+        Application client = mock(Application.class);
+        when(client.getDomain()).thenReturn("domain");
+        when(jwtBuilder.setClaims(anyMap())).thenReturn(mockJwtBuilder);
+        when(domainService.findById(domain)).thenReturn(Maybe.just(domain1));
+        when(commonUserService.findByDomainAndUsernameAndSource(anyString(), anyString(), anyString())).thenReturn(Maybe.empty());
+        when(identityProviderManager.getUserProvider(anyString())).thenReturn(Maybe.just(userProvider));
+        when(applicationService.findById(newUser.getClient())).thenReturn(Maybe.just(client));
+        when(commonUserService.create(any())).thenReturn(Single.just(new User()));
+
+        Email email = new Email();
+        email.setTemplate("testTemplate");
+        when(emailManager.getEmail(anyString(), isNull(), anyInt())).thenReturn(email);
+
+        TestObserver<User> testObserver = userService.create(domain, newUser).test();
+        testObserver.assertComplete();
+        testObserver.assertNoErrors();
+        verify(commonUserService, times(1)).create(any());
+        ArgumentCaptor<User> argument = ArgumentCaptor.forClass(User.class);
+        verify(commonUserService).create(argument.capture());
+        verify(emailService).send(Mockito.argThat(e -> e.getParams().get("registrationUrl").equals("http://test2.gravitee.io/test2/confirmRegistration?token=token")), any(User.class));
+
+        Assert.assertNull(argument.getValue().getRegistrationUserUri());
+        Assert.assertNull(argument.getValue().getRegistrationAccessToken());
     }
 
     @Test
     public void shouldPreRegisterUser_dynamicUserRegistration_domainLevel() {
-        shouldPreRegisterUser(true, false);
+
+        final String domain = "domain";
+
+        AccountSettings accountSettings;
+        accountSettings = mock(AccountSettings.class);
+        when(accountSettings.isDynamicUserRegistration()).thenReturn(true);
+
+        JwtBuilder mockJwtBuilder = mock(JwtBuilder.class);
+        when(mockJwtBuilder.compact()).thenReturn("token");
+
+        Domain domain1 = mock(Domain.class);
+        when(domain1.getId()).thenReturn(domain);
+        when(domain1.getAccountSettings()).thenReturn(accountSettings);
+
+        NewUser newUser = mock(NewUser.class);
+        when(newUser.getUsername()).thenReturn("username");
+        when(newUser.getSource()).thenReturn("idp");
+        when(newUser.getClient()).thenReturn("client");
+        when(newUser.isPreRegistration()).thenReturn(true);
+
+        UserProvider userProvider = mock(UserProvider.class);
+        doReturn(Single.just(new DefaultUser(newUser.getUsername()))).when(userProvider).create(any());
+
+        Application client = mock(Application.class);
+        when(client.getDomain()).thenReturn("domain");
+
+        when(jwtBuilder.setClaims(anyMap())).thenReturn(mockJwtBuilder);
+        when(domainService.findById(domain)).thenReturn(Maybe.just(domain1));
+        when(commonUserService.findByDomainAndUsernameAndSource(anyString(), anyString(), anyString())).thenReturn(Maybe.empty());
+        when(identityProviderManager.getUserProvider(anyString())).thenReturn(Maybe.just(userProvider));
+        when(applicationService.findById(newUser.getClient())).thenReturn(Maybe.just(client));
+        when(commonUserService.create(any())).thenReturn(Single.just(new User()));
+
+        TestObserver<User> testObserver = userService.create(domain, newUser).test();
+        testObserver.assertComplete();
+        testObserver.assertNoErrors();
+        verify(commonUserService, times(1)).create(any());
+        ArgumentCaptor<User> argument = ArgumentCaptor.forClass(User.class);
+        verify(commonUserService).create(argument.capture());
+
+        Assert.assertNotNull(argument.getValue().getRegistrationUserUri());
+        Assert.assertNotNull(argument.getValue().getRegistrationAccessToken());
+        Assert.assertEquals("token", argument.getValue().getRegistrationAccessToken());
     }
 
     @Test

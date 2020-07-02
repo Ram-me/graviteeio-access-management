@@ -27,6 +27,7 @@ import io.gravitee.am.gateway.handler.oidc.service.utils.JWAlgorithmUtils;
 import io.gravitee.am.model.Domain;
 import io.gravitee.am.service.utils.GrantTypeUtils;
 import io.gravitee.am.service.utils.ResponseTypeUtils;
+import io.vertx.reactivex.ext.web.RoutingContext;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Arrays;
@@ -113,6 +114,6 @@ public class OpenIDDiscoveryServiceImpl implements OpenIDDiscoveryService {
     }
 
     private String getEndpointAbsoluteURL(String basePath, String endpointPath) {
-        return basePath + domain.getPath() + endpointPath;
+        return basePath + endpointPath;
     }
 }

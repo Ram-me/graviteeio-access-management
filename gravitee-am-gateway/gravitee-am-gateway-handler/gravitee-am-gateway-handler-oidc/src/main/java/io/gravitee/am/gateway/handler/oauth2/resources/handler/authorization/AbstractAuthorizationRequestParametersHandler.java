@@ -27,6 +27,8 @@ import org.slf4j.LoggerFactory;
 import java.net.URISyntaxException;
 import java.util.Date;
 
+import static io.gravitee.am.gateway.handler.common.vertx.utils.UriBuilderRequest.CONTEXT_PATH;
+
 /**
  * @author David BRASSELY (david.brassely at graviteesource.com)
  * @author GraviteeSource Team
@@ -35,10 +37,9 @@ public abstract class AbstractAuthorizationRequestParametersHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(AbstractAuthorizationRequestParametersHandler.class);
 
-    private final String loginPageUrl;
+    private final static String LOGIN_ENDPOINT = "/login";
 
     public AbstractAuthorizationRequestParametersHandler(Domain domain) {
-        this.loginPageUrl = '/' + domain.getPath() + "/login";
     }
 
     protected void parseMaxAgeParameter(RoutingContext context) {
@@ -81,7 +82,7 @@ public abstract class AbstractAuthorizationRequestParametersHandler {
     protected boolean returnFromLoginPage(RoutingContext context) {
         String referer = context.request().headers().get(HttpHeaders.REFERER);
         try {
-            return referer != null && UriBuilder.fromURIString(referer).build().getPath().contains(loginPageUrl);
+            return referer != null && UriBuilder.fromURIString(referer).build().getPath().contains(context.get(CONTEXT_PATH) + LOGIN_ENDPOINT);
         } catch (URISyntaxException e) {
             logger.debug("Unable to calculate referer url : {}", referer, e);
             return false;

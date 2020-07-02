@@ -20,6 +20,7 @@ import io.gravitee.am.common.email.Email;
 import io.gravitee.am.common.email.EmailBuilder;
 import io.gravitee.am.common.jwt.Claims;
 import io.gravitee.am.common.oidc.StandardClaims;
+import io.gravitee.am.common.utils.PathUtils;
 import io.gravitee.am.common.utils.RandomString;
 import io.gravitee.am.identityprovider.api.DefaultUser;
 import io.gravitee.am.management.service.EmailManager;
@@ -37,6 +38,7 @@ import io.gravitee.am.service.model.NewUser;
 import io.gravitee.am.service.model.UpdateUser;
 import io.gravitee.am.service.reporter.builder.AuditBuilder;
 import io.gravitee.am.service.reporter.builder.management.UserAuditBuilder;
+import io.gravitee.common.util.URIUtils;
 import io.jsonwebtoken.JwtBuilder;
 import io.reactivex.Completable;
 import io.reactivex.Maybe;
@@ -45,7 +47,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.net.URL;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -56,6 +61,7 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
 
     private static final String DEFAULT_IDP_PREFIX = "default-idp-";
+    private static final Pattern SCHEME_PATTERN = Pattern.compile("^(https?://).*$");
 
     @Value("${user.registration.email.subject:New user registration}")
     private String registrationSubject;
@@ -208,7 +214,7 @@ public class UserServiceImpl implements UserService {
                                                                         User user = transform(newUser1);
                                                                         AccountSettings accountSettings = getAccountSettings(domain1, client);
                                                                         if (newUser.isPreRegistration() && accountSettings != null && accountSettings.isDynamicUserRegistration()) {
-                                                                            user.setRegistrationUserUri(getUserRegistrationUri(domain1.getPath(), "/confirmRegistration"));
+                                                                            user.setRegistrationUserUri(getUserRegistrationUri(domain1, "/confirmRegistration"));
                                                                             user.setRegistrationAccessToken(getUserRegistrationToken(user));
                                                                         }
                                                                         return userService.create(user);
@@ -218,7 +224,7 @@ public class UserServiceImpl implements UserService {
                                                                         // in pre registration mode an email will be sent to the user to complete his account
                                                                         AccountSettings accountSettings = getAccountSettings(domain1, client);
                                                                         if (newUser.isPreRegistration() && accountSettings != null && !accountSettings.isDynamicUserRegistration()) {
-                                                                            new Thread(() -> completeUserRegistration(user)).start();
+                                                                            completeUserRegistration(user, domain1).subscribe();
                                                                         }
                                                                     })
                                                                     .doOnError(throwable -> auditService.report(AuditBuilder.builder(UserAuditBuilder.class).principal(principal).type(EventType.USER_CREATED).throwable(throwable)));
@@ -392,7 +398,7 @@ public class UserServiceImpl implements UserService {
                     }
                     return user;
                 })
-                .doOnSuccess(user -> new Thread(() -> completeUserRegistration(user)).start())
+                .doOnSuccess(user -> completeUserRegistration(user).subscribe())
                 .doOnSuccess(user1 -> auditService.report(AuditBuilder.builder(UserAuditBuilder.class).principal(principal).type(EventType.REGISTRATION_CONFIRMATION_REQUESTED).user(user1)))
                 .doOnError(throwable -> auditService.report(AuditBuilder.builder(UserAuditBuilder.class).principal(principal).type(EventType.REGISTRATION_CONFIRMATION_REQUESTED).throwable(throwable)))
                 .toCompletable();
@@ -494,15 +500,22 @@ public class UserServiceImpl implements UserService {
                 }).toCompletable();
     }
 
-    private void completeUserRegistration(User user) {
-        final String templateName = getTemplateName(user);
-        io.gravitee.am.model.Email email = emailManager.getEmail(templateName, registrationSubject, expireAfter);
-        Email email1 = buildEmail(user, email, "/confirmRegistration", "registrationUrl");
-        emailService.send(email1, user);
+    private Completable completeUserRegistration(User user) {
+        return domainService.findById(user.getReferenceId())
+                .flatMapCompletable(domain -> completeUserRegistration(user, domain));
     }
 
-    private Email buildEmail(User user, io.gravitee.am.model.Email email, String redirectUri, String redirectUriName) {
-        Map<String, Object> params = prepareEmail(user, email.getExpiresAfter(), redirectUri, redirectUriName);
+    private Completable completeUserRegistration(User user, Domain domain) {
+
+        final String templateName = getTemplateName(user);
+        io.gravitee.am.model.Email email = emailManager.getEmail(templateName, registrationSubject, expireAfter);
+        Email email1 = buildEmail(user, domain, email, "/confirmRegistration", "registrationUrl");
+        emailService.send(email1, user);
+        return Completable.complete();
+    }
+
+    private Email buildEmail(User user, Domain domain, io.gravitee.am.model.Email email, String redirectUri, String redirectUriName) {
+        Map<String, Object> params = prepareEmail(user, domain, email.getExpiresAfter(), redirectUri, redirectUriName);
         Email email1 = new EmailBuilder()
                 .to(user.getEmail())
                 .from(email.getFrom())
@@ -514,9 +527,9 @@ public class UserServiceImpl implements UserService {
         return email1;
     }
 
-    private Map<String, Object> prepareEmail(User user, int expiresAfter, String redirectUri, String redirectUriName) {
+    private Map<String, Object> prepareEmail(User user, Domain domain, int expiresAfter, String redirectUri, String redirectUriName) {
         final String token = getUserRegistrationToken(user);
-        final String redirectUrl = getUserRegistrationUri(user.getReferenceId(), redirectUri) + "?token=" + token;
+        final String redirectUrl = getUserRegistrationUri(domain, redirectUri) + "?token=" + token;
 
         Map<String, Object> params = new HashMap<>();
         params.put("user", user);
@@ -527,13 +540,37 @@ public class UserServiceImpl implements UserService {
         return params;
     }
 
-    private String getUserRegistrationUri(String domain, String redirectUri) {
+    private String getUserRegistrationUri(Domain domain, String redirectUri) {
+
         String entryPoint = gatewayUrl;
+
         if (entryPoint != null && entryPoint.endsWith("/")) {
             entryPoint = entryPoint.substring(0, entryPoint.length() - 1);
         }
 
-        return entryPoint + "/" + domain + redirectUri;
+        String uri = null;
+
+        if (domain.isVhostMode()) {
+            // Try generate uri using defined virtual hosts.
+            Matcher matcher = SCHEME_PATTERN.matcher(entryPoint);
+            String scheme = "http";
+            if(matcher.matches()) {
+                scheme = matcher.group(1);
+            }
+
+            for (VirtualHost vhost : domain.getVhosts()) {
+                if (vhost.isOverrideEntrypoint()) {
+                    uri = scheme + vhost.getHost() + vhost.getPath() + redirectUri;
+                    break;
+                }
+            }
+        }
+
+        if(uri == null) {
+            uri = entryPoint + PathUtils.sanitize(domain.getPath() + redirectUri);
+        }
+
+        return uri;
     }
 
     private String getUserRegistrationToken(User user) {

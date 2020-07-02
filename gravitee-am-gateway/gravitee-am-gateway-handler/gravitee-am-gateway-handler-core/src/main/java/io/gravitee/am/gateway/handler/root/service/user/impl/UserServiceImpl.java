@@ -22,6 +22,7 @@ import io.gravitee.am.common.exception.authentication.AccountInactiveException;
 import io.gravitee.am.common.jwt.Claims;
 import io.gravitee.am.common.jwt.JWT;
 import io.gravitee.am.common.oidc.StandardClaims;
+import io.gravitee.am.common.utils.PathUtils;
 import io.gravitee.am.gateway.certificate.jwt.JWTBuilder;
 import io.gravitee.am.gateway.certificate.jwt.JWTParser;
 import io.gravitee.am.gateway.handler.common.auth.idp.IdentityProviderManager;
@@ -33,12 +34,9 @@ import io.gravitee.am.gateway.handler.root.service.response.ResetPasswordRespons
 import io.gravitee.am.gateway.handler.root.service.user.UserService;
 import io.gravitee.am.gateway.handler.root.service.user.model.UserToken;
 import io.gravitee.am.identityprovider.api.DefaultUser;
-import io.gravitee.am.model.Domain;
-import io.gravitee.am.model.Template;
-import io.gravitee.am.model.User;
+import io.gravitee.am.model.*;
 import io.gravitee.am.model.account.AccountSettings;
 import io.gravitee.am.model.factor.EnrolledFactor;
-import io.gravitee.am.model.ReferenceType;
 import io.gravitee.am.model.oidc.Client;
 import io.gravitee.am.repository.management.api.search.LoginAttemptCriteria;
 import io.gravitee.am.service.AuditService;
@@ -59,6 +57,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * @author Titouan COMPIEGNE (titouan.compiegne at graviteesource.com)
@@ -67,6 +67,7 @@ import java.util.*;
 public class UserServiceImpl implements UserService {
 
     private static final String DEFAULT_IDP_PREFIX = "default-idp-";
+    private static final Pattern SCHEME_PATTERN = Pattern.compile("^(https?://).*$");
 
     @Value("${gateway.url:http://localhost:8092}")
     private String gatewayUrl;
@@ -373,13 +374,7 @@ public class UserServiceImpl implements UserService {
         claims.put(StandardClaims.FAMILY_NAME, user.getLastName());
 
         String token = jwtBuilder.sign(new JWT(claims));
-
-        String entryPoint = gatewayUrl;
-        if (entryPoint != null && entryPoint.endsWith("/")) {
-            entryPoint = entryPoint.substring(0, entryPoint.length() - 1);
-        }
-
-        String redirectUrl = entryPoint + "/" + user.getReferenceId() + redirectUri + "?token=" + token;
+        String redirectUrl = getRedirectUri(redirectUri + "?token=" + token);
 
         Map<String, Object> params = new HashMap<>();
         params.put("user", user);
@@ -388,6 +383,39 @@ public class UserServiceImpl implements UserService {
         params.put("expireAfterSeconds", expiresAfter);
 
         return params;
+    }
+
+    private String getRedirectUri(String redirectUri) {
+
+        String entryPoint = gatewayUrl;
+
+        if (entryPoint != null && entryPoint.endsWith("/")) {
+            entryPoint = entryPoint.substring(0, entryPoint.length() - 1);
+        }
+
+        String uri = null;
+
+        if (domain.isVhostMode()) {
+            // Try generate uri using defined virtual hosts.
+            Matcher matcher = SCHEME_PATTERN.matcher(entryPoint);
+            String scheme = "http";
+            if(matcher.matches()) {
+                scheme = matcher.group(1);
+            }
+
+            for (VirtualHost vhost : domain.getVhosts()) {
+                if (vhost.isOverrideEntrypoint()) {
+                    uri = scheme + vhost.getHost() + vhost.getPath() + redirectUri;
+                    break;
+                }
+            }
+        }
+
+        if(uri == null) {
+            uri = entryPoint + PathUtils.sanitize(domain.getPath() + redirectUri);
+        }
+
+        return uri;
     }
 
     private String getTemplateName(Client client) {
