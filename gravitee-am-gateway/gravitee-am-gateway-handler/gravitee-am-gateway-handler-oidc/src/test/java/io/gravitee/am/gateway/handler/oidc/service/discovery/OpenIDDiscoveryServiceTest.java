@@ -17,6 +17,7 @@ package io.gravitee.am.gateway.handler.oidc.service.discovery;
 
 import io.gravitee.am.gateway.handler.oauth2.service.scope.ScopeService;
 import io.gravitee.am.gateway.handler.oidc.service.discovery.impl.OpenIDDiscoveryServiceImpl;
+import io.gravitee.am.gateway.handler.oidc.service.utils.JWAlgorithmUtils;
 import io.gravitee.am.model.Domain;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -47,6 +48,28 @@ public class OpenIDDiscoveryServiceTest {
         OpenIDProviderMetadata openIDProviderMetadata = openIDDiscoveryService.getConfiguration("/");
         assertTrue(openIDProviderMetadata.getRequestParameterSupported());
     }
-}
 
+    public void shouldContain_id_token_signing_alg_values_supported() {
+        OpenIDProviderMetadata openIDProviderMetadata = openIDDiscoveryService.getConfiguration("/");
+        assertTrue(JWAlgorithmUtils.getSupportedIdTokenSigningAlg().containsAll(openIDProviderMetadata.getIdTokenSigningAlgValuesSupported()));
+    }
+
+    @Test
+    public void shouldContain_token_endpoint_auth_signing_alg_values_supported() {
+        OpenIDProviderMetadata openIDProviderMetadata = openIDDiscoveryService.getConfiguration("/");
+        assertTrue(JWAlgorithmUtils.getSupportedTokenEndpointAuthSigningAlg().containsAll(openIDProviderMetadata.getTokenEndpointAuthSigningAlgValuesSupported()));
+    }
+
+    @Test
+    public void shouldContain_userinfo_signing_alg_values_supported() {
+        OpenIDProviderMetadata openIDProviderMetadata = openIDDiscoveryService.getConfiguration("/");
+        assertTrue(JWAlgorithmUtils.getSupportedUserinfoSigningAlg().containsAll(openIDProviderMetadata.getUserinfoSigningAlgValuesSupported()));
+    }
+
+    @Test
+    public void shouldContain_request_object_signing_alg_values_supported() {
+        OpenIDProviderMetadata openIDProviderMetadata = openIDDiscoveryService.getConfiguration("/");
+        assertTrue(JWAlgorithmUtils.getSupportedRequestObjectSigningAlg().containsAll(openIDProviderMetadata.getRequestObjectSigningAlgValuesSupported()));
+    }
+}
 
