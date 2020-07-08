@@ -15,8 +15,11 @@
  */
 package io.gravitee.am.management.handlers.management.api.authentication.web;
 
+import io.gravitee.am.management.handlers.management.api.authentication.provider.generator.RedirectCookieGenerator;
 import io.gravitee.common.http.HttpHeaders;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.web.util.UrlUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import javax.servlet.http.HttpServletRequest;
@@ -29,6 +32,9 @@ import javax.servlet.http.HttpServletResponse;
 public class LoginUrlAuthenticationEntryPoint extends org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint {
 
     private static final String X_FORWARDED_PREFIX = "X-Forwarded-Prefix";
+
+    @Autowired
+    private RedirectCookieGenerator redirectCookieGenerator;
 
     public LoginUrlAuthenticationEntryPoint(String loginFormUrl) {
         super(loginFormUrl);
@@ -43,18 +49,26 @@ public class LoginUrlAuthenticationEntryPoint extends org.springframework.securi
         String scheme = request.getHeader(HttpHeaders.X_FORWARDED_PROTO);
         if (scheme != null && !scheme.isEmpty()) {
             builder.scheme(scheme);
+        } else {
+            scheme = request.getScheme();
         }
 
         String host = request.getHeader(HttpHeaders.X_FORWARDED_HOST);
-        if (host != null && !host.isEmpty()) {
-            if (host.contains(":")) {
-                // Forwarded host contains both host and port
-                String [] parts = host.split(":");
-                builder.host(parts[0]);
-                builder.port(parts[1]);
-            } else {
-                builder.host(host);
-            }
+        int port = "https".equalsIgnoreCase(scheme) ? 443 : 80;
+
+        if (host == null || host.isEmpty()) {
+            host = request.getHeader(HttpHeaders.HOST);
+        }
+
+        if (host.contains(":")) {
+            // Forwarded host contains both host and port
+            String[] parts = host.split(":");
+            builder.host(parts[0]);
+            builder.port(parts[1]);
+            host = parts[0];
+            port = Integer.parseInt(parts[1]);
+        } else {
+            builder.host(host);
         }
 
         // handle forwarded path
@@ -65,6 +79,9 @@ public class LoginUrlAuthenticationEntryPoint extends org.springframework.securi
             forwardedPath = forwardedPath.substring(0, forwardedPath.length() - (forwardedPath.endsWith("/") ? 1 : 0));
             builder.replacePath(forwardedPath + path);
         }
+
+        // Use a cookie to save the original redirect uri.
+        response.addCookie(redirectCookieGenerator.generateCookie(UrlUtils.buildFullRequestUrl(scheme, host, port, request.getRequestURI(), request.getQueryString())));
 
         return builder.toUriString();
     }

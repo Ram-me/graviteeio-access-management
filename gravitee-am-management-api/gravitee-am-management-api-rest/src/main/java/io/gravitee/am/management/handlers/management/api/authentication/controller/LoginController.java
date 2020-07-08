@@ -17,6 +17,7 @@ package io.gravitee.am.management.handlers.management.api.authentication.control
 
 import io.gravitee.am.identityprovider.api.social.SocialAuthenticationProvider;
 import io.gravitee.am.management.handlers.management.api.authentication.manager.idp.IdentityProviderManager;
+import io.gravitee.am.management.handlers.management.api.authentication.provider.generator.RedirectCookieGenerator;
 import io.gravitee.am.model.IdentityProvider;
 import io.gravitee.am.model.Organization;
 import io.gravitee.am.service.OrganizationService;
@@ -31,10 +32,11 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import static io.gravitee.am.management.handlers.management.api.authentication.provider.generator.RedirectCookieGenerator.DEFAULT_REDIRECT_COOKIE_NAME;
 
 /**
  * @author David BRASSELY (david.brassely at graviteesource.com)
@@ -101,13 +103,10 @@ public class LoginController {
     }
 
     @RequestMapping(value = "/login/callback")
-    public void loginCallback(HttpServletResponse response, HttpSession session) throws IOException {
-        if (session != null && session.getAttribute(SAVED_REQUEST) != null) {
-            final SavedRequest savedRequest = (SavedRequest) session.getAttribute(SAVED_REQUEST);
-            response.sendRedirect(savedRequest.getRedirectUrl());
-        } else {
-            response.sendRedirect("/auth/login");
-        }
+    public void loginCallback(HttpServletRequest request, HttpServletResponse response) throws IOException {
+
+        // Redirect to the original request.
+        response.sendRedirect((String) request.getAttribute(DEFAULT_REDIRECT_COOKIE_NAME));
     }
 
     private String buildRedirectUri(HttpServletRequest request, String identity) {
